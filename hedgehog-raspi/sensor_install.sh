@@ -71,9 +71,8 @@ build_htpdate() {
 
 clean_up() {
 
-    # Remove ethernet interface files left by installation
-    # TODO: how will the user configure interfaces now on hedgehog-raspi?
-    rm -f /etc/network/interfaces.d/eth0
+    # Remove network interface files left by installation
+    rm -f /etc/network/interfaces.d/*
 
     # Remove this script and any debugging files
     # Comment this out in order to troubleshoot the build process in a chroot
@@ -87,6 +86,7 @@ clean_up() {
 		   /opt/deps \
 		   /opt/hooks \
 		   /opt/patches \
+           /opt/requirements.txt \
            /root/.bash_history \
            /root/.wget-hsts \
            /root/.cache \
@@ -112,17 +112,19 @@ clean_up() {
 }
 
 create_user() {
-
-    # Set defaults but it is STRONGLY recommended that these be changed before deploying Sensor
+    # default password (must be changed on first login, see chage below)
     local pass='Hedgehog_Linux'
-    local root_pass='Hedgehog_Linux_Root'
-
+    # create sensor user's group
     groupadd "$SENSOR_GROUP"
-    useradd -m -g "$SENSOR_GROUP" -u 1000 -s /bin/bash -d "$SENSOR_HOME" "$SENSOR_USER"
-    usermod -a -G netdev "$SENSOR_USER"
-
-    echo -n "${SENSOR_USER}:${pass}" | chpasswd --crypt-method YESCRYPT
-    echo -n "root:${root_pass}" | chpasswd --crypt-method YESCRYPT
+    # create sensor user, and add to netdev and sudo group
+    useradd -m -g "$SENSOR_GROUP" -G sudo,netdev -u 1000 -s /bin/bash -d "$SENSOR_HOME" "$SENSOR_USER"
+    # set default password
+    echo "${SENSOR_USER}:${pass}" | chpasswd --crypt-method YESCRYPT
+    # force password change on first login
+    chage -d 0 "$SENSOR_USER"
+    # disable direct root password login
+    passwd -d root
+    passwd -l root
 }
 
 install_deps() {
@@ -152,6 +154,8 @@ install_deps() {
     # Hedgehog conf files are copied into env before this runs; keep those config files by default
     apt-get -o Dpkg::Options::="--force-confold" install -q $deps -y --no-install-suggests
     apt-get clean
+
+    dpkg -s docker-ce >/dev/null 2>&1 && usermod -a -G docker "$SENSOR_USER"
 }
 
 install_files() {
@@ -173,8 +177,7 @@ install_files() {
     mkdir -p Malcolm .malcolm-install
     pushd .malcolm-install >/dev/null 2>&1
     echo 'N' | bash "$MALCOLM_SRC/scripts/malcolm_appliance_packager.sh" >/dev/null 2>&1
-    ls malcolm_*.tar.gz
-    tar xzf malcolm_*.tar.gz -C "$SENSOR_HOME"/Malcolm --strip-components 2
+    tar xzf ./malcolm_*.tar.gz -C "$SENSOR_HOME"/Malcolm --strip-components 2
     popd >/dev/null 2>&1
     rm -rf .malcolm-install
     popd >/dev/null 2>&1
@@ -182,9 +185,20 @@ install_files() {
     # Setup OS information
     sensor_ver_file="$SENSOR_HOME/Malcolm/.os-info"
 
+    # mark as first run
+    touch "$SENSOR_HOME"/Malcolm/firstrun
+
     if [[ -f "$SHARED_DIR/version.txt" ]]; then
       SHARED_IMAGE_VERSION="$(cat "$SHARED_DIR/version.txt" | head -n 1)"
       [[ -n $SHARED_IMAGE_VERSION ]] && IMAGE_VERSION="$SHARED_IMAGE_VERSION"
+    fi
+
+    if [[ -f "$SHARED_DIR/docker_images.txt" ]]; then
+      DOCKER_IMAGES_TXZ="$(cat "$SHARED_DIR/docker_images.txt" | head -n 1)"
+      if [[ -r "$SHARED_DIR/$DOCKER_IMAGES_TXZ" ]]; then
+        mv "$SHARED_DIR/$DOCKER_IMAGES_TXZ" /malcolm_images.tar.xz
+        chown root:root /malcolm_images.tar.xz
+      fi
     fi
 
     echo "BUILD_ID=\"$(date +\'%Y-%m-%d\')-${IMAGE_VERSION}\""   > "$sensor_ver_file"
@@ -216,13 +230,11 @@ install_files() {
     # Prepare debs directory for other packages
     mkdir -p "${DEBS_DIR}"
 
-    # Disable ipv6
-    echo 'ipv6.disable=1' > /etc/default/raspi-extra-cmdline
+    # Set kernel parameters
+    echo 'systemd.unified_cgroup_hierarchy=1 cgroup_enable=memory swapaccount=1 cgroup.memory=nokmem random.trust_cpu=on usbcore.autosuspend=-1 preempt=voluntary ipv6.disable=1' > /etc/default/raspi-extra-cmdline
 
     # Add RPI hostname to /etc/hosts
     echo "127.0.1.1 $(head -n 1 /etc/hostname)" >> /etc/hosts
-
-    # mark as first run
 }
 
 install_hooks() {

@@ -1,4 +1,4 @@
-FROM zeek/zeek:8.1.1
+FROM zeek/zeek:8.1.2
 
 # Copyright (c) 2026 Battelle Energy Alliance, LLC.  All rights reserved.
 LABEL maintainer="malcolm@inl.gov"
@@ -50,7 +50,7 @@ ADD --chmod=644 scripts/malcolm_constants.py /usr/local/bin/
 ADD zeek/custom-pkg "$ZEEK_DIR"/custom-pkg
 ADD --chmod=644 zeek/requirements.txt /usr/local/src/requirements.txt
 
-ENV SUPERCRONIC_VERSION="0.2.43"
+ENV SUPERCRONIC_VERSION="0.2.45"
 ENV SUPERCRONIC_URL="https://github.com/aptible/supercronic/releases/download/v$SUPERCRONIC_VERSION/supercronic-linux-"
 ENV SUPERCRONIC_CRONTAB="${ZEEK_DIR}/crontab"
 
@@ -291,6 +291,7 @@ ARG ZEEK_OMRON_FINS_DETAILED=true
 ARG ZEEK_KAFKA_ENABLED=
 ARG ZEEK_KAFKA_BROKERS=kafka.local:9091
 ARG ZEEK_KAFKA_TOPIC=zeek
+ARG ZEEK_FILE_ANALYZER_TIMEOUT_SEC=5
 
 ENV ZEEK_DISABLE_STATS=$ZEEK_DISABLE_STATS
 ENV ZEEK_DISABLE_LOG_PASSWORDS=$ZEEK_DISABLE_LOG_PASSWORDS
@@ -321,6 +322,7 @@ ENV ZEEK_OMRON_FINS_DETAILED=$ZEEK_OMRON_FINS_DETAILED
 ENV ZEEK_KAFKA_ENABLED=$ZEEK_KAFKA_ENABLED
 ENV ZEEK_KAFKA_BROKERS=$ZEEK_KAFKA_BROKERS
 ENV ZEEK_KAFKA_TOPIC=$ZEEK_KAFKA_TOPIC
+ENV ZEEK_FILE_ANALYZER_TIMEOUT_SEC=$ZEEK_FILE_ANALYZER_TIMEOUT_SEC
 
 # This is in part to handle an issue when running with rootless podman and
 #   "userns_mode: keep-id". It seems that anything defined as a VOLUME
@@ -331,7 +333,7 @@ ENV ZEEK_KAFKA_TOPIC=$ZEEK_KAFKA_TOPIC
 #   where I've put this workaround) in this case the PUSER_CHOWN was
 #   already being set like this, so even if I resolve that issue
 #   I probably don't want to remove this.
-ENV PUSER_CHOWN="$ZEEK_DIR"
+ENV PUSER_CHOWN="$ZEEK_DIR/etc;$ZEEK_DIR/share/zeek/site/custom;$ZEEK_DIR/share/zeek/site/intel;$ZEEK_DIR/share/zeekctl;$ZEEK_DIR/spool"
 
 # see PUSER_CHOWN comment above
 VOLUME ["${ZEEK_DIR}/share/zeek/site/intel"]

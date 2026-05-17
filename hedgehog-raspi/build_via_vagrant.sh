@@ -22,10 +22,15 @@ function vm_execute() {
 }
 
 unset FORCE_PROVISION
+DOCKER_IMAGES_TGZ=""
 XZ_EXT=
 IMAGE=raspi_4_trixie.img
-while getopts 'fi:z' OPTION; do
+while getopts 'd:fi:z' OPTION; do
   case "$OPTION" in
+    d)
+      DOCKER_IMAGES_TGZ=${OPTARG}
+      ;;
+
     f)
       FORCE_PROVISION=0
       ;;
@@ -95,12 +100,19 @@ echo "SSH available." >&2
 
 cleanup_shared_and_docs
 mkdir "$SCRIPT_PATH"/shared
+
+if [[ -r "$DOCKER_IMAGES_TGZ" ]]; then
+  DOCKER_IMAGES_LOCAL="$SCRIPT_PATH/shared/$(basename "$DOCKER_IMAGES_TGZ")"
+  cp -v "$DOCKER_IMAGES_TGZ" "$DOCKER_IMAGES_LOCAL"
+else
+  DOCKER_IMAGES_LOCAL=""
+fi
+
 YML_IMAGE_VERSION="$(grep -P "^\s+image:.*/malcolm/" "$SCRIPT_PATH"/../docker-compose.yml | awk '{print $2}' | cut -d':' -f2 | uniq -c | sort -nr | awk '{print $2}' | head -n 1)"
 [[ -n $YML_IMAGE_VERSION ]] && echo "$YML_IMAGE_VERSION" > "$SCRIPT_PATH"/shared/version.txt
-[[ ${#MAXMIND_GEOIP_DB_LICENSE_KEY} -gt 1 ]] && echo "$MAXMIND_GEOIP_DB_LICENSE_KEY" > "$SCRIPT_PATH"/shared/maxmind_license.txt
-[[ ${#MAXMIND_GEOIP_DB_ALTERNATE_DOWNLOAD_URL} -gt 1 ]] && echo "$MAXMIND_GEOIP_DB_ALTERNATE_DOWNLOAD_URL" > "$SCRIPT_PATH"/shared/maxmind_url.txt
-[[ ${#GITHUB_TOKEN} -gt 1 ]] && echo "GITHUB_TOKEN=$GITHUB_TOKEN" >> "$SCRIPT_PATH"/shared/environment.chroot
-echo "VCS_REVSION=$( git rev-parse --short HEAD 2>/dev/null || echo main )" >> "$SCRIPT_PATH"/shared/environment.chroot
+[[ -n $DOCKER_IMAGES_LOCAL ]] && echo "$(basename "$DOCKER_IMAGES_LOCAL")" > "$SCRIPT_PATH"/shared/docker_images.txt
+[[ ${#GITHUB_TOKEN} -gt 1 ]] && echo "export GITHUB_TOKEN=$GITHUB_TOKEN" >> "$SCRIPT_PATH"/shared/environment.chroot
+echo "export VCS_REVSION=$( git rev-parse --short HEAD 2>/dev/null || echo main )" >> "$SCRIPT_PATH"/shared/environment.chroot
 trap cleanup_shared_and_docs EXIT
 
 # send source code to VM
@@ -137,5 +149,7 @@ if [[ -n $NEED_SHUTDOWN ]]; then
   done
   echo "$VM_NAME is stopped." >&2
 fi
+
+[[ -r "$DOCKER_IMAGES_LOCAL" ]] && rm -vf "$DOCKER_IMAGES_LOCAL"
 
 popd

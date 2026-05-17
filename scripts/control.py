@@ -1355,6 +1355,22 @@ def stop(wipe=False):
                                     logging.info(f'Performing RemoveEmptyFolders on "{tmpPath}"')
                                     RemoveEmptyFolders(tmpPath, removeRoot=False)
 
+                # wipe interrupted old zeek intel files as a one-off
+                if (
+                    localPath := LocalPathForContainerBindMount(
+                        "zeek",
+                        dockerComposeYaml,
+                        "/usr/local/zeek/share/zeek/site/intel",
+                        GetMalcolmPath(),
+                    )
+                ) and os.path.isdir(localPath):
+                    for f in Path(localPath).glob("*.zeek." + "?" * 16):
+                        if f.is_file():
+                            try:
+                                f.unlink()
+                            except:
+                                pass
+
                 logging.info("Malcolm has been stopped and its data cleared\n")
 
     elif orchMode is OrchestrationFramework.KUBERNETES:
@@ -3121,7 +3137,7 @@ def main():
         metavar='<string>',
         type=str,
         default=os.getenv('MALCOLM_IMAGE_TAG', None),
-        help='Tag for container images (e.g., "26.04.1"; only for "start" operation with Kubernetes)',
+        help='Tag for container images (e.g., "26.05.0"; only for "start" operation with Kubernetes)',
     )
     kubernetesGroup.add_argument(
         '--delete-namespace',

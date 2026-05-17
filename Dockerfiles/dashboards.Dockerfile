@@ -1,4 +1,4 @@
-FROM opensearchproject/opensearch-dashboards:3.5.0
+FROM opensearchproject/opensearch-dashboards:3.6.0
 
 LABEL maintainer="malcolm@inl.gov"
 LABEL org.opencontainers.image.authors='malcolm@inl.gov'
@@ -34,7 +34,12 @@ RUN export BINARCH=$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/') 
     yum install -y curl-minimal psmisc findutils util-linux jq openssl rsync procps-ng python3 zip unzip && \
     yum remove -y vim-* && \
     usermod -a -G tty ${PUSER} && \
-    chown --silent -R ${PUSER}:${PGROUP} /usr/share/opensearch-dashboards && \
+    mkdir -p /usr/share/opensearch-dashboards/config /usr/share/opensearch-dashboards/data && \
+    chown -R root:root /usr/share/opensearch-dashboards && \
+    find /usr/share/opensearch-dashboards -type d -exec chmod a+rx,go-w {} + && \
+    find /usr/share/opensearch-dashboards -type f -exec chmod a+r,go-w {} + && \
+    chown --silent -R ${PUSER}:${PGROUP} /usr/share/opensearch-dashboards/config /usr/share/opensearch-dashboards/data && \
+    chmod -R u+rwX,go-rwx /usr/share/opensearch-dashboards/config /usr/share/opensearch-dashboards/data && \
     curl -sSLf -o /usr/bin/tini "${TINI_URL}-${BINARCH}" && \
       chmod +x /usr/bin/tini && \
     yum clean all && \
@@ -49,6 +54,17 @@ ADD --chmod=644 dashboards/opensearch_dashboards.yml /usr/share/opensearch-dashb
 ADD --chmod=755 dashboards/scripts/docker_entrypoint.sh /usr/local/bin/
 ADD --chmod=644 scripts/malcolm_utils.py /usr/local/bin/
 ADD --chmod=644 scripts/malcolm_constants.py /usr/local/bin/
+
+# This is in part to handle an issue when running with rootless podman and
+#   "userns_mode: keep-id". It seems that anything defined as a VOLUME
+#   in the Dockerfile is getting set with an ownership of 999:999.
+#   This is to override that, although I'm not yet sure if there are
+#   other implications. See containers/podman#23347.
+ENV PUSER_CHOWN="/usr/share/opensearch-dashboards/config;/usr/share/opensearch-dashboards/data"
+
+# see PUSER_CHOWN comment above
+VOLUME ["/usr/share/opensearch-dashboards/config"]
+VOLUME ["/usr/share/opensearch-dashboards/data"]
 
 ENTRYPOINT ["/usr/bin/tini", \
             "--", \

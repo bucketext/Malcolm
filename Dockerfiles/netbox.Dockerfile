@@ -25,11 +25,11 @@ ENV PGROUP="ubuntu"
 ENV PUSER_PRIV_DROP=true
 USER root
 
-ENV NETBOX_INITIALIZERS_VERSION="v4.4.0"
+ENV NETBOX_INITIALIZERS_VERSION="71428297f115069224d5df8ee72e8bf8b1117755"
 ENV NETBOX_TOPOLOGY_VERSION="4.4.0"
 ENV NETBOX_HEALTHCHECK_VERSION="0.2.0"
 
-ENV YQ_VERSION="4.52.5"
+ENV YQ_VERSION="4.53.2"
 ENV YQ_URL="https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/yq_linux_"
 
 ENV NETBOX_DEVICETYPE_LIBRARY_IMPORT_URL="https://codeload.github.com/mmguero-dev/Device-Type-Library-Import/tar.gz/develop"
@@ -40,14 +40,19 @@ ARG NETBOX_DEVICETYPE_LIBRARY_IMPORT_PATH="/opt/netbox-devicetype-library-import
 ARG NETBOX_DEFAULT_SITE=Malcolm
 ARG NETBOX_PRELOAD_PATH="/opt/netbox-preload"
 ARG NETBOX_CUSTOM_PLUGINS_PATH="/opt/netbox-custom-plugins"
-ARG NETBOX_CONFIG_PATH="/etc/netbox/config"
+ARG NETBOX_CUSTOM_VENV_PACKAGES_PATH="/opt/netbox-custom-python"
+ARG NETBOX_CUSTOM_SCRIPTS_PATH="/opt/netbox-custom-scripts"
 
 ENV NETBOX_PATH=/opt/netbox
 ENV NETBOX_DEVICETYPE_LIBRARY_IMPORT_PATH=$NETBOX_DEVICETYPE_LIBRARY_IMPORT_PATH
+
 ENV NETBOX_DEFAULT_SITE=$NETBOX_DEFAULT_SITE
 ENV NETBOX_PRELOAD_PATH=$NETBOX_PRELOAD_PATH
 ENV NETBOX_CUSTOM_PLUGINS_PATH=$NETBOX_CUSTOM_PLUGINS_PATH
-ENV NETBOX_CONFIG_PATH=$NETBOX_CONFIG_PATH
+ENV NETBOX_CUSTOM_VENV_PACKAGES_PATH=$NETBOX_CUSTOM_VENV_PACKAGES_PATH
+ENV NETBOX_CUSTOM_SCRIPTS_PATH=$NETBOX_CUSTOM_SCRIPTS_PATH
+ENV NETBOX_RUNTIME_SCRIPTS_PATH=/opt/netbox/netbox/scripts
+ENV NETBOX_CONFIG_PATH=/etc/netbox/config
 
 ADD --chmod=644 netbox/patch/* /tmp/netbox-patches/
 ADD --chmod=644 netbox/requirements.txt /usr/local/src/
@@ -91,7 +96,8 @@ RUN export BINARCH=$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/') 
     usermod -a -G tty ${PUSER} && \
     mkdir -p /opt/unit "${NETBOX_DEVICETYPE_LIBRARY_IMPORT_PATH}" "${NETBOX_PRELOAD_PATH}" && \
     cp /tmp/netbox-config/* "${NETBOX_CONFIG_PATH}" && \
-    chown -R $PUSER:root /etc/netbox /opt/unit "${NETBOX_PATH}" && \
+    chown -R ${PUSER}:root /etc/netbox /opt/unit && \
+    chown -R root:root "${NETBOX_PATH}" && \
     cd "$(dirname "${NETBOX_DEVICETYPE_LIBRARY_IMPORT_PATH}")" && \
         curl -sSL "${NETBOX_DEVICETYPE_LIBRARY_IMPORT_URL}" | tar xzf - -C ./"$(basename "${NETBOX_DEVICETYPE_LIBRARY_IMPORT_PATH}")" --strip-components 1 && \
     cd "${NETBOX_DEVICETYPE_LIBRARY_IMPORT_PATH}" && \
@@ -100,10 +106,12 @@ RUN export BINARCH=$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/') 
       mkdir -p ./repo && \
       curl -sSL "${NETBOX_DEVICETYPE_LIBRARY_URL}" | tar xzf - -C ./repo --strip-components 1 && \
       rm -rf ./repo/device-types/WatchGuard && \
-    mkdir -p "${NETBOX_PATH}/netbox/netbox" "${NETBOX_CUSTOM_PLUGINS_PATH}/requirements" && \
+    mkdir -p "${NETBOX_PATH}/netbox/netbox" "${NETBOX_CUSTOM_PLUGINS_PATH}/requirements" "${NETBOX_CUSTOM_SCRIPTS_PATH}" "${NETBOX_RUNTIME_SCRIPTS_PATH}" "${NETBOX_CUSTOM_VENV_PACKAGES_PATH}" && \
       jq '. += { "settings": { "http": { "discard_unsafe_fields": false } } }' /etc/unit/nginx-unit.json | jq 'del(.listeners."[::]:8080")' | jq 'del(.listeners."[::]:8081")' | jq '.routes.main[0].action.share = "`/opt/netbox/netbox${uri.substring(7)}`"' | jq '.routes.main[0].match.uri = "/netbox/static/*"' | jq '.routes.status[0].match.uri = "/netbox/status/*"' > /etc/unit/nginx-unit-new.json && \
       mv /etc/unit/nginx-unit-new.json /etc/unit/nginx-unit.json && \
       chmod 644 /etc/unit/nginx-unit.json && \
+      chown --silent -R ${PUSER}:${PGROUP} "${NETBOX_CUSTOM_PLUGINS_PATH}" "${NETBOX_CUSTOM_SCRIPTS_PATH}" "${NETBOX_RUNTIME_SCRIPTS_PATH}" "${NETBOX_CUSTOM_VENV_PACKAGES_PATH}" && \
+      echo "${NETBOX_CUSTOM_VENV_PACKAGES_PATH}" > "$(${NETBOX_PATH}/venv/bin/python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')/netbox-extra.pth" && \
     tr -cd '\11\12\15\40-\176' < "${NETBOX_PATH}/netbox/netbox/configuration.py" > "${NETBOX_PATH}/netbox/netbox/configuration_ascii.py" && \
       mv "${NETBOX_PATH}/netbox/netbox/configuration_ascii.py" "${NETBOX_PATH}/netbox/netbox/configuration.py" && \
     sed -i "s/\('CENSUS_REPORTING_ENABLED',[[:space:]]*\)True/\1False/" "${NETBOX_PATH}/netbox/netbox/settings.py" && \
@@ -118,13 +126,27 @@ COPY --from=ghcr.io/mmguero-dev/gostatic --chmod=755 /goStatic /usr/bin/goStatic
 ADD --chmod=755 shared/bin/docker-uid-gid-setup.sh /usr/local/bin/
 ADD --chmod=755 shared/bin/service_check_passthrough.sh /usr/local/bin/
 ADD --chmod=755 container-health-scripts/netbox.sh /usr/local/bin/container_health.sh
-ADD --chmod=755 netbox/scripts/* /usr/local/bin/
+ADD --chmod=755 netbox/control-scripts/* /usr/local/bin/
+# ADD --chmod=755 netbox/builtin-scripts/* $NETBOX_CUSTOM_SCRIPTS_PATH/
 ADD --chmod=644 scripts/malcolm_utils.py /usr/local/bin/
 ADD --chmod=644 scripts/malcolm_constants.py /usr/local/bin/
 ADD --chmod=644 netbox/supervisord.conf /etc/supervisord.conf
 ADD --chmod=644 netbox/preload/*.yml $NETBOX_PRELOAD_PATH/
 
 EXPOSE 9001
+
+# This is in part to handle an issue when running with rootless podman and
+#   "userns_mode: keep-id". It seems that anything defined as a VOLUME
+#   in the Dockerfile is getting set with an ownership of 999:999.
+#   This is to override that, although I'm not yet sure if there are
+#   other implications. See containers/podman#23347.
+ENV PUSER_CHOWN="$NETBOX_CUSTOM_PLUGINS_PATH;$NETBOX_CUSTOM_SCRIPTS_PATH;$NETBOX_RUNTIME_SCRIPTS_PATH;$NETBOX_CUSTOM_VENV_PACKAGES_PATH"
+
+# see PUSER_CHOWN comment above
+VOLUME ["$NETBOX_CUSTOM_PLUGINS_PATH"]
+VOLUME ["$NETBOX_CUSTOM_SCRIPTS_PATH"]
+VOLUME ["$NETBOX_RUNTIME_SCRIPTS_PATH"]
+VOLUME ["$NETBOX_CUSTOM_VENV_PACKAGES_PATH"]
 
 ENTRYPOINT ["/usr/bin/tini", \
             "--", \

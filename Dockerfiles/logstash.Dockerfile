@@ -1,4 +1,4 @@
-FROM registry.access.redhat.com/ubi9/ubi-minimal AS manuf-builder
+FROM registry.access.redhat.com/ubi10/ubi-minimal AS manuf-builder
 
 COPY logstash/requirements.txt /work/
 COPY scripts/malcolm_utils.py /work/
@@ -16,7 +16,7 @@ RUN microdnf -y install \
     python3 -m pip install --no-cache-dir -r requirements.txt && \
     python3 manuf-oui-parse.py -o vendor_macs.yaml
 
-FROM docker.elastic.co/logstash/logstash-oss:9.2.7
+FROM docker.elastic.co/logstash/logstash-oss:9.2.8
 
 LABEL maintainer="malcolm@inl.gov"
 LABEL org.opencontainers.image.authors='malcolm@inl.gov'
@@ -48,7 +48,7 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PIP_ROOT_USER_ACTION=ignore
 
-ENV YQ_VERSION="4.52.5"
+ENV YQ_VERSION="4.53.2"
 ENV YQ_URL="https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/yq_linux_"
 
 ENV TINI_VERSION=v0.19.0
@@ -107,8 +107,10 @@ RUN set -x && \
     rm -rf /usr/share/logstash.build/ && \
     mkdir -p /logstash-persistent-queue /usr/share/logstash/config/bootstrap /usr/share/logstash/config/persist && \
     usermod -a -G tty ${PUSER} && \
-    chown -R ${PUSER}:root /usr/share/logstash /logstash-persistent-queue && \
-    chmod -R u+rwX,go+rX /usr/share/logstash
+    chown -R root:root /usr/share/logstash  && \
+    chmod -R u+rwX,go+rX /usr/share/logstash && \
+    chown -R ${PUSER}:root /logstash-persistent-queue /usr/share/logstash/config /usr/share/logstash/data /usr/share/logstash/jdk/lib/security /usr/share/logstash/malcolm*
+
 
 COPY --from=manuf-builder --chmod=644 /work/vendor_macs.yaml /etc/vendor_macs.yaml
 COPY --from=ghcr.io/mmguero-dev/gostatic --chmod=755 /goStatic /usr/bin/goStatic
